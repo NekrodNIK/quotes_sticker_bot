@@ -1,12 +1,39 @@
+from io import BytesIO
 from pathlib import PurePath, Path
 
-from telegram import Update
+from PIL import ImageFont
+from telegram import Update, Sticker
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
 import tomllib
+from PIL import Image
+from PIL.ImageDraw import Draw
+
+STICKER_HEIGHT = 512
 
 
-async def gen_sticker(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(f'Hello {update.effective_user.first_name}')
+async def gen_sticker(update: Update, _) -> None:
+    sticker_weight = 1000
+    sticker_image = Image.new(mode="RGBA", size=(1000, STICKER_HEIGHT))
+
+    if update.message.forward_from is None:
+        user_id = update.message.from_user.id
+    else:
+        user_id = update.message.forward_from.id
+
+    avatar_bytes_io = BytesIO()
+
+    await (await update.get_bot().get_file(
+        (await update.get_bot().get_user_profile_photos(user_id)).photos[0][0].file_id
+    )).download_to_memory(avatar_bytes_io)
+
+    avatar_image = Image.open(avatar_bytes_io)
+    sticker_image.paste(avatar_image, (0, 0, avatar_image.size[0], avatar_image.size[1]))
+
+    sticker_output_bytes_io = BytesIO()
+    sticker_image.save(sticker_output_bytes_io, format="PNG")
+    sticker_output_bytes_io.seek(0)
+
+    await update.message.reply_sticker(sticker=sticker_output_bytes_io)
 
 
 try:
@@ -23,7 +50,7 @@ if bot_token is None:
 
 app = ApplicationBuilder().token(bot_token).build()
 
-app.add_handler(MessageHandler(filters=filters.TEXT,
+app.add_handler(MessageHandler(filters=filters.TEXT & ~ filters.FORWARDED,
                                callback=gen_sticker))
 
 app.run_polling()
